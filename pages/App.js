@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CadastroScreen from './CadastroScreen';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 Notifications.setNotificationHandler({
@@ -24,6 +25,7 @@ const COLORS = {
     softGreen: '#E9F4EC',
     softRed: '#FCEBE7',
     gold: '#E6A23C',
+    orange: '#F28C28',
 };
 const MENU = [
     { id: 'calabresa', name: 'Calabresa da Casa', description: 'Calabresa, cebola roxa e orégano', price: 39.9, emoji: '🍕', category: 'Clássicas', tag: 'Mais pedida' },
@@ -65,14 +67,16 @@ const INGREDIENT_GROUPS = [
     },
 ];
 const STATUS_STEPS = [
-    { id: 'confirmed', label: 'Pedido confirmado', detail: 'Recebemos seu pedido!', emoji: '✅' },
+    { id: 'pending', label: 'Aguardando a pizzaria', detail: 'Seu pedido foi enviado e aguarda aceitação da unidade.', emoji: '🕒' },
+    { id: 'confirmed', label: 'Pedido aceito', detail: 'A pizzaria aceitou seu pedido!', emoji: '✅' },
     { id: 'preparing', label: 'Sendo preparado', detail: 'A cozinha já está trabalhando nele.', emoji: '👨‍🍳' },
     { id: 'baking', label: 'No forno', detail: 'Sua pizza está ficando douradinha.', emoji: '🔥' },
     { id: 'out_for_delivery', label: 'Saiu para entrega', detail: 'Nosso entregador está a caminho.', emoji: '🛵' },
-    { id: 'delivered', label: 'Entregue', detail: 'Bom apetite! Até a próxima.', emoji: '💚' },
+    { id: 'ready_for_pickup', label: 'Pronto para retirada', detail: 'Sua pizza está pronta. Pode retirar na unidade.', emoji: '🏪' },
+    { id: 'delivered', label: 'Concluído', detail: 'Pedido finalizado. Bom apetite!', emoji: '💚' },
 ];
-const STORAGE = { cart: '@pizzaria/cart', orders: '@pizzaria/orders', profile: '@pizzaria/profile' };
-const DEFAULT_ADDRESS = { name: '', phone: '', street: '', number: '', neighborhood: '', city: '', complement: '' };
+const STORAGE = { cart: '@pizzaria/cart', orders: '@pizzaria/orders', profile: '@pizzaria/profile', favorites: '@pizzaria/favorites', ratings: '@pizzaria/ratings' };
+const DEFAULT_ADDRESS = { name: '', email: '', phone: '', street: '', number: '', neighborhood: '', city: '', complement: '' };
 const money = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const uuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -111,6 +115,10 @@ function PizzariaApp() {
     const [cart, setCart] = useState([]);
     const [orders, setOrders] = useState([]);
     const [profile, setProfile] = useState(DEFAULT_ADDRESS);
+    const [fulfillment, setFulfillment] = useState('delivery');
+    const [paymentMethod, setPaymentMethod] = useState('pix');
+    const [favorites, setFavorites] = useState([]);
+    const [ratings, setRatings] = useState({});
     const [hydrated, setHydrated] = useState(false);
     const [search, setSearch] = useState('');
     const [category, setCategory] = useState('Todas');
@@ -133,8 +141,9 @@ function PizzariaApp() {
     useEffect(() => {
         const load = async () => {
             try {
-                const [savedCart, savedOrders, savedProfile] = await Promise.all([
+                const [savedCart, savedOrders, savedProfile, savedFavorites, savedRatings] = await Promise.all([
                     AsyncStorage.getItem(STORAGE.cart), AsyncStorage.getItem(STORAGE.orders), AsyncStorage.getItem(STORAGE.profile),
+                    AsyncStorage.getItem(STORAGE.favorites), AsyncStorage.getItem(STORAGE.ratings),
                 ]);
                 if (savedCart)
                     setCart(JSON.parse(savedCart));
@@ -142,6 +151,8 @@ function PizzariaApp() {
                     setOrders(JSON.parse(savedOrders));
                 if (savedProfile)
                     setProfile({ ...DEFAULT_ADDRESS, ...JSON.parse(savedProfile) });
+                if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
+                if (savedRatings) setRatings(JSON.parse(savedRatings));
             }
             catch (error) {
                 console.warn('Não foi possível carregar os dados salvos:', error);
@@ -159,11 +170,15 @@ function PizzariaApp() {
             [STORAGE.cart, JSON.stringify(cart)],
             [STORAGE.orders, JSON.stringify(orders)],
             [STORAGE.profile, JSON.stringify(profile)],
+            [STORAGE.favorites, JSON.stringify(favorites)],
+            [STORAGE.ratings, JSON.stringify(ratings)],
         ]).catch((error) => console.warn('Falha ao salvar os dados:', error));
-    }, [cart, orders, profile, hydrated]);
+    }, [cart, orders, profile, favorites, ratings, hydrated]);
     const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
-    const deliveryFee = subtotal === 0 || subtotal >= 70 ? 0 : 5.99;
+    const deliveryFee = fulfillment === 'pickup' || subtotal === 0 || subtotal >= 70 ? 0 : 5.99;
     const total = subtotal + deliveryFee;
+    const toggleFavorite = (pizzaId) => setFavorites((current) => current.includes(pizzaId) ? current.filter((id) => id !== pizzaId) : [...current, pizzaId]);
+    const saveRating = (orderId, score) => { setRatings((current) => ({ ...current, [orderId]: score })); showToast('Obrigado pela sua avaliação!'); };
     const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
     const showToast = useCallback((message) => {
         setToast(message);
@@ -248,8 +263,8 @@ function PizzariaApp() {
             Alert.alert('Carrinho vazio', 'Adicione uma pizza antes de finalizar.');
             return;
         }
-        if (!profile.name.trim() || !profile.phone.trim() || !profile.street.trim() || !profile.city.trim()) {
-            Alert.alert('Faltam alguns dados', 'Preencha nome, telefone, rua e cidade para continuar.');
+        if (!profile.name.trim() || !profile.phone.trim() || (fulfillment === 'delivery' && (!profile.street.trim() || !profile.city.trim()))) {
+            Alert.alert('Faltam alguns dados', fulfillment === 'delivery' ? 'Preencha nome, telefone, rua e cidade para receber em casa.' : 'Preencha nome e telefone para retirar seu pedido.');
             return;
         }
         try {
@@ -261,20 +276,22 @@ function PizzariaApp() {
         // O pedido é salvo somente no armazenamento local deste aparelho.
         // Nenhuma API, servidor ou serviço de backend é chamado.
         const trackingCode = uuid();
-        const addressLabel = formatAddress(profile);
+        const addressLabel = fulfillment === 'pickup' ? 'Retirada na unidade πzzaria selecionada' : formatAddress(profile);
         const newOrder = {
-            id: uid(), trackingCode, status: 'confirmed', items: cart, total, address: addressLabel,
-            createdAt: new Date().toISOString(),
+            id: uid(), trackingCode, status: 'pending', items: cart, total, address: addressLabel,
+            fulfillment, paymentMethod, createdAt: new Date().toISOString(),
         };
         setOrders((current) => [newOrder, ...current]);
         setCart([]);
         setScreen('orders');
-        await notifyStatus('confirmed', newOrder.trackingCode);
-        showToast('Pedido salvo neste aparelho (demonstração)');
+        await notifyStatus('pending', newOrder.trackingCode);
+        showToast('Pedido enviado para confirmação (demonstração)');
     };
+    const getOrderSteps = (order) => STATUS_STEPS.filter((step) => !(order.fulfillment === 'pickup' && step.id === 'out_for_delivery') && !(order.fulfillment !== 'pickup' && step.id === 'ready_for_pickup'));
     const advanceDemoOrder = async (order) => {
-        const index = STATUS_STEPS.findIndex((step) => step.id === order.status);
-        const next = STATUS_STEPS[Math.min(index + 1, STATUS_STEPS.length - 1)];
+        const steps = getOrderSteps(order);
+        const index = steps.findIndex((step) => step.id === order.status);
+        const next = steps[Math.min(index + 1, steps.length - 1)];
         if (!next || next.id === order.status)
             return;
         setOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: next.id } : item));
@@ -348,7 +365,8 @@ function PizzariaApp() {
                         React.createElement(TextInput, { value: search, onChangeText: setSearch, placeholder: "Busque seu sabor favorito", placeholderTextColor: "#A99B91", style: styles.searchInput })),
                     React.createElement(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, contentContainerStyle: styles.categoryRow }, ['Todas', 'Clássicas', 'Especiais', 'Doces'].map((item) => React.createElement(Pressable, { key: item, onPress: () => setCategory(item), style: [styles.categoryPill, category === item && styles.categoryPillActive] },
                         React.createElement(Text, { style: [styles.categoryText, category === item && styles.categoryTextActive] }, item)))),
-                    React.createElement(View, { style: styles.menuGrid }, filteredMenu.map((pizza) => React.createElement(MenuCard, { key: pizza.id, pizza: pizza, onAdd: () => addPizza(pizza) }))),
+                    React.createElement(View, { style: styles.menuGrid }, filteredMenu.map((pizza) => React.createElement(MenuCard, { key: pizza.id, pizza: pizza, onAdd: () => addPizza(pizza), favorite: favorites.includes(pizza.id), onFavorite: () => toggleFavorite(pizza.id) }))),
+                    favorites.length > 0 && React.createElement(View, { style: styles.favoritesHint }, React.createElement(Text, { style: styles.favoritesHintText }, `♥  ${favorites.length} sabor(es) salvo(s) nos seus favoritos. Toque no coração para atualizar.`)),
                     filteredMenu.length === 0 && React.createElement(EmptyState, { emoji: "\uD83D\uDD0E", title: "N\u00E3o achamos esse sabor", subtitle: "Tente outro nome ou categoria." }),
                     React.createElement(Pressable, { style: styles.customBanner, onPress: () => setScreen('builder') },
                         React.createElement(View, { style: styles.customBannerIcon },
@@ -423,7 +441,11 @@ function PizzariaApp() {
                         React.createElement(Text, { style: styles.eyebrow }, "ENTREGA"),
                         React.createElement(Text, { style: styles.screenTitle }, "Onde entregamos?"),
                         React.createElement(Text, { style: styles.bodyText }, "Use sua localiza\u00E7\u00E3o para preencher o endere\u00E7o automaticamente ou digite os dados.")),
-                    React.createElement(Pressable, { style: [styles.locationButton, locating && styles.disabledButton], onPress: useCurrentLocation, disabled: locating },
+                    React.createElement(Text, { style: styles.fieldLabel }, 'Como deseja receber?'),
+                    React.createElement(View, { style: styles.choiceRow },
+                        React.createElement(Pressable, { onPress: () => setFulfillment('delivery'), style: [styles.choiceButton, fulfillment === 'delivery' && styles.choiceButtonActive] }, React.createElement(Text, { style: [styles.choiceText, fulfillment === 'delivery' && styles.choiceTextActive] }, '🛵  Entrega')),
+                        React.createElement(Pressable, { onPress: () => setFulfillment('pickup'), style: [styles.choiceButton, fulfillment === 'pickup' && styles.choiceButtonActive] }, React.createElement(Text, { style: [styles.choiceText, fulfillment === 'pickup' && styles.choiceTextActive] }, '🏪  Retirar na unidade'))),
+                    fulfillment === 'delivery' && React.createElement(Pressable, { style: [styles.locationButton, locating && styles.disabledButton], onPress: useCurrentLocation, disabled: locating },
                         React.createElement(Text, { style: styles.locationButtonIcon }, locating ? '◌' : '⌖'),
                         React.createElement(View, { style: styles.locationButtonCopy },
                             React.createElement(Text, { style: styles.locationButtonTitle }, locating ? 'Buscando sua localização...' : 'Usar minha localização atual'),
@@ -432,15 +454,18 @@ function PizzariaApp() {
                     React.createElement(Text, { style: styles.fieldLabel }, "Seus dados"),
                     React.createElement(FormInput, { label: "Nome completo *", value: profile.name, onChangeText: (value) => setProfile((current) => ({ ...current, name: value })), placeholder: "Como podemos te chamar?" }),
                     React.createElement(FormInput, { label: "Telefone / WhatsApp *", value: profile.phone, onChangeText: (value) => setProfile((current) => ({ ...current, phone: value })), placeholder: "(00) 00000-0000", keyboardType: "phone-pad" }),
-                    React.createElement(Text, { style: styles.fieldLabel }, "Endere\u00E7o de entrega"),
-                    React.createElement(FormInput, { label: "Rua / Avenida *", value: profile.street, onChangeText: (value) => setProfile((current) => ({ ...current, street: value })), placeholder: "Nome da rua" }),
-                    React.createElement(View, { style: styles.formTwoColumns },
+                    fulfillment === 'delivery' && React.createElement(Text, { style: styles.fieldLabel }, "Endere\u00E7o de entrega"),
+                    fulfillment === 'delivery' && React.createElement(FormInput, { label: "Rua / Avenida *", value: profile.street, onChangeText: (value) => setProfile((current) => ({ ...current, street: value })), placeholder: "Nome da rua" }),
+                    fulfillment === 'delivery' && React.createElement(View, { style: styles.formTwoColumns },
                         React.createElement(View, { style: styles.formColumn },
                             React.createElement(FormInput, { label: "N\u00FAmero", value: profile.number, onChangeText: (value) => setProfile((current) => ({ ...current, number: value })), placeholder: "N\u00BA", keyboardType: "number-pad" })),
                         React.createElement(View, { style: styles.formColumn },
                             React.createElement(FormInput, { label: "Bairro", value: profile.neighborhood, onChangeText: (value) => setProfile((current) => ({ ...current, neighborhood: value })), placeholder: "Seu bairro" }))),
-                    React.createElement(FormInput, { label: "Cidade / Estado *", value: profile.city, onChangeText: (value) => setProfile((current) => ({ ...current, city: value })), placeholder: "Cidade - UF" }),
-                    React.createElement(FormInput, { label: "Complemento (opcional)", value: profile.complement, onChangeText: (value) => setProfile((current) => ({ ...current, complement: value })), placeholder: "Apto, bloco, ponto de refer\u00EAncia" }),
+                    fulfillment === 'delivery' && React.createElement(FormInput, { label: "Cidade / Estado *", value: profile.city, onChangeText: (value) => setProfile((current) => ({ ...current, city: value })), placeholder: "Cidade - UF" }),
+                    fulfillment === 'delivery' && React.createElement(FormInput, { label: "Complemento (opcional)", value: profile.complement, onChangeText: (value) => setProfile((current) => ({ ...current, complement: value })), placeholder: "Apto, bloco, ponto de refer\u00EAncia" }),
+                    React.createElement(Text, { style: styles.fieldLabel }, 'Forma de pagamento'),
+                    React.createElement(View, { style: styles.choiceRow },
+                        ...[{ id: 'pix', label: '💠  Pix' }, { id: 'card', label: '💳  Cartão' }, { id: 'cash', label: '💵  Dinheiro' }].map((method) => React.createElement(Pressable, { key: method.id, onPress: () => setPaymentMethod(method.id), style: [styles.choiceButton, paymentMethod === method.id && styles.choiceButtonActive] }, React.createElement(Text, { style: [styles.choiceText, paymentMethod === method.id && styles.choiceTextActive] }, method.label)))),
                     React.createElement(View, { style: styles.checkoutTotal },
                         React.createElement(Text, { style: styles.checkoutTotalLabel }, "Total do pedido"),
                         React.createElement(Text, { style: styles.checkoutTotalValue }, money(total))),
@@ -455,7 +480,8 @@ function PizzariaApp() {
                     React.createElement(Text, { style: styles.screenTitle }, "O caminho da sua pizza."),
                     React.createElement(Text, { style: styles.bodyText }, "A gente te avisa a cada etapa do preparo e da entrega."),
                     orders.length === 0 ? (React.createElement(EmptyState, { emoji: "\uD83D\uDEF5", title: "Nenhum pedido por aqui", subtitle: "Quando pedir sua pr\u00F3xima pizza, o acompanhamento aparece nesta tela.", actionLabel: "Escolher uma pizza", onAction: () => setScreen('home') })) : (orders.map((order) => {
-                        const currentIndex = STATUS_STEPS.findIndex((step) => step.id === order.status);
+                        const orderSteps = getOrderSteps(order);
+                        const currentIndex = orderSteps.findIndex((step) => step.id === order.status);
                         return (React.createElement(View, { key: order.id, style: styles.orderCard },
                             React.createElement(View, { style: styles.orderCardTop },
                                 React.createElement(View, null,
@@ -471,12 +497,18 @@ function PizzariaApp() {
                                 "\u00D7 ",
                                 item.name))),
                             React.createElement(View, { style: styles.orderMetaRow },
-                                React.createElement(Text, { style: styles.orderMetaLabel }, "Entrega em"),
+                                React.createElement(Text, { style: styles.orderMetaLabel }, "Recebimento"),
+                                React.createElement(Text, { style: styles.orderMetaValue }, order.fulfillment === 'pickup' ? 'Retirada' : 'Entrega')),
+                            React.createElement(View, { style: styles.orderMetaRow },
+                                React.createElement(Text, { style: styles.orderMetaLabel }, "Pagamento"),
+                                React.createElement(Text, { style: styles.orderMetaValue }, ({ pix: 'Pix', card: 'Cartão', cash: 'Dinheiro' })[order.paymentMethod] || 'A combinar')),
+                            React.createElement(View, { style: styles.orderMetaRow },
+                                React.createElement(Text, { style: styles.orderMetaLabel }, "Local"),
                                 React.createElement(Text, { numberOfLines: 2, style: styles.orderMetaValue }, order.address)),
                             React.createElement(View, { style: styles.orderMetaRow },
                                 React.createElement(Text, { style: styles.orderMetaLabel }, "Total"),
                                 React.createElement(Text, { style: styles.orderTotal }, money(order.total))),
-                            React.createElement(View, { style: styles.timeline }, STATUS_STEPS.map((step, index) => {
+                            React.createElement(View, { style: styles.timeline }, orderSteps.map((step, index) => {
                                 const complete = index <= currentIndex;
                                 const current = index === currentIndex;
                                 return (React.createElement(View, { key: step.id, style: styles.timelineRow },
@@ -484,7 +516,7 @@ function PizzariaApp() {
                                         index > 0 && React.createElement(View, { style: [styles.timelineTopLine, complete && styles.timelineLineDone] }),
                                         React.createElement(View, { style: [styles.timelineDot, complete && styles.timelineDotDone, current && styles.timelineDotCurrent] },
                                             React.createElement(Text, { style: [styles.timelineDotText, complete && styles.timelineDotTextDone] }, complete ? '✓' : '')),
-                                        index < STATUS_STEPS.length - 1 && React.createElement(View, { style: [styles.timelineBottomLine, index < currentIndex && styles.timelineLineDone] })),
+                                        index < orderSteps.length - 1 && React.createElement(View, { style: [styles.timelineBottomLine, index < currentIndex && styles.timelineLineDone] })),
                                     React.createElement(View, { style: styles.timelineContent },
                                         React.createElement(Text, { style: [styles.timelineLabel, current && styles.timelineLabelCurrent] },
                                             step.emoji,
@@ -493,9 +525,22 @@ function PizzariaApp() {
                                         React.createElement(Text, { style: styles.timelineDetail }, step.detail))));
                             })),
                             order.status !== 'delivered' && (React.createElement(Pressable, { style: styles.demoAdvanceButton, onPress: () => advanceDemoOrder(order) },
-                                React.createElement(Text, { style: styles.demoAdvanceText }, "Simular pr\u00F3xima etapa (demonstra\u00E7\u00E3o) \u2192"))),
+                                React.createElement(Text, { style: styles.demoAdvanceText }, "Simular próxima etapa da pizzaria (demonstração) →"))),
+                            order.status === 'delivered' && React.createElement(View, { style: styles.ratingBox },
+                                React.createElement(Text, { style: styles.profileSectionTitle }, 'Como foi sua experiência?'),
+                                React.createElement(View, { style: styles.ratingRow }, [1,2,3,4,5].map((score) => React.createElement(Pressable, { key: score, onPress: () => saveRating(order.id, score) }, React.createElement(Text, { style: styles.ratingStar }, score <= (ratings[order.id] || 0) ? '★' : '☆')))),
+                                React.createElement(Text, { style: styles.profileSectionText }, ratings[order.id] ? `Você avaliou com ${ratings[order.id]} estrela(s).` : 'Avalie seu pedido de 1 a 5 estrelas.')),
                             null));
                     })))),
+                screen === 'register' && React.createElement(CadastroScreen, {
+                    initialProfile: profile,
+                    onBack: () => setScreen('profile'),
+                    onRegister: (account) => {
+                        setProfile((current) => ({ ...current, name: account.name, email: account.email, phone: account.phone }));
+                        setScreen('profile');
+                        showToast('Cadastro salvo neste aparelho!');
+                    },
+                }),
                 screen === 'profile' && (React.createElement(React.Fragment, null,
                     React.createElement(Text, { style: styles.eyebrow }, "TUDO NO SEU TEMPO"),
                     React.createElement(Text, { style: styles.screenTitle }, "Sua conta \u03C0zzaria"),
@@ -519,8 +564,8 @@ function PizzariaApp() {
                             React.createElement(Text, { style: styles.outlineButtonText }, "Ativar notifica\u00E7\u00F5es \u2192"))),
                     React.createElement(View, { style: styles.demoInfo },
                         React.createElement(Text, { style: styles.demoInfoTitle }, '📱  Funcionamento local'),
-                        React.createElement(Text, { style: styles.demoInfoText }, 'Cardápio, carrinho, endereço e pedidos ficam salvos somente neste aparelho. Não há conexão com backend, servidor ou API; as etapas do pedido são simuladas manualmente.')))))),
-        !pageTitle && React.createElement(View, { style: styles.bottomNav }, ([
+                        React.createElement(Text, { style: styles.demoInfoText }, 'Cardápio, carrinho, endereço, favoritos, avaliações e pedidos ficam salvos neste aparelho. Este modo demonstração não envia pedidos à unidade nem processa pagamentos; a confirmação e as etapas são simuladas.')))))),
+        !pageTitle && screen !== 'register' && React.createElement(View, { style: styles.bottomNav }, ([
             { id: 'home', icon: '⌂', label: 'Início' },
             { id: 'builder', icon: '✳', label: 'Monte' },
             { id: 'orders', icon: '◷', label: 'Pedidos' },
@@ -534,10 +579,11 @@ function PizzariaApp() {
                 "\u2713  ",
                 toast)) : null));
 }
-function MenuCard({ pizza, onAdd }) {
+function MenuCard({ pizza, onAdd, favorite, onFavorite }) {
     return React.createElement(View, { style: styles.menuCard },
         React.createElement(View, { style: styles.menuCardArt },
             React.createElement(Text, { style: styles.menuCardEmoji }, pizza.emoji),
+            React.createElement(Pressable, { onPress: onFavorite, style: styles.favoriteButton, accessibilityLabel: favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos' }, React.createElement(Text, { style: styles.favoriteButtonText }, favorite ? '♥' : '♡')),
             pizza.tag ? React.createElement(View, { style: styles.menuTag },
                 React.createElement(Text, { style: styles.menuTagText }, pizza.tag)) : null,
             React.createElement(View, { style: styles.menuArtBubble })),
@@ -627,6 +673,8 @@ const styles = StyleSheet.create({
     categoryTextActive: { color: '#FFFFFF' },
     menuGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 13 },
     menuCard: { width: '48.2%', overflow: 'hidden', borderRadius: 18, backgroundColor: COLORS.paper, borderWidth: 1, borderColor: COLORS.line },
+    favoriteButton: { position: 'absolute', top: 8, right: 8, zIndex: 3, width: 29, height: 29, borderRadius: 15, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+    favoriteButtonText: { color: COLORS.red, fontSize: 18, fontWeight: '900' },
     menuCardArt: { height: 112, backgroundColor: '#F9EBDD', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' },
     menuCardEmoji: { fontSize: 63, zIndex: 1 },
     menuTag: { position: 'absolute', top: 9, left: 8, zIndex: 2, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 4, backgroundColor: '#FFF8EC' },
@@ -640,6 +688,8 @@ const styles = StyleSheet.create({
     menuCardPrice: { color: COLORS.ink, fontSize: 14, fontWeight: '900', marginTop: 2 },
     addButton: { width: 34, height: 34, borderRadius: 11, backgroundColor: COLORS.red, alignItems: 'center', justifyContent: 'center' },
     addButtonText: { color: '#FFFFFF', fontSize: 24, fontWeight: '500', marginTop: -2 },
+    favoritesHint: { marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: COLORS.softRed },
+    favoritesHintText: { color: COLORS.redDark, fontSize: 10, fontWeight: '700' },
     customBanner: { marginTop: 23, padding: 14, borderRadius: 18, backgroundColor: '#F1E6D8', flexDirection: 'row', alignItems: 'center', gap: 12 },
     customBannerIcon: { width: 43, height: 43, borderRadius: 14, backgroundColor: '#FFFAF2', alignItems: 'center', justifyContent: 'center' },
     customBannerCopy: { flex: 1 },
@@ -705,6 +755,14 @@ const styles = StyleSheet.create({
     linkButton: { alignItems: 'center', paddingVertical: 16 },
     linkButtonText: { color: COLORS.red, fontWeight: '800', fontSize: 12 },
     checkoutIntro: { marginTop: 4, marginBottom: 6 },
+    choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 13 },
+    choiceButton: { flexGrow: 1, minWidth: '30%', paddingVertical: 12, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.paper, alignItems: 'center' },
+    choiceButtonActive: { borderColor: COLORS.red, backgroundColor: COLORS.softRed },
+    choiceText: { color: COLORS.muted, fontSize: 11, fontWeight: '800' },
+    choiceTextActive: { color: COLORS.red },
+    ratingBox: { marginTop: 16, padding: 13, backgroundColor: '#FFF8EC', borderRadius: 13 },
+    ratingRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+    ratingStar: { fontSize: 28, color: COLORS.gold },
     locationButton: { backgroundColor: COLORS.softGreen, borderColor: '#D4E9D9', borderWidth: 1, borderRadius: 15, paddingHorizontal: 13, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
     disabledButton: { opacity: 0.7 },
     locationButtonIcon: { color: COLORS.green, fontSize: 27, width: 30, textAlign: 'center' },
