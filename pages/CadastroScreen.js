@@ -64,7 +64,7 @@ export default function CadastroScreen({ initialProfile, onRegister, onBack }) {
   return (
     <View style={styles.container}>
         <Pressable onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>‹  Voltar ao perfil</Text>
+          <Text style={styles.backText}>‹  Voltar</Text>
         </Pressable>
 
         <View style={styles.brandMark}>
@@ -115,6 +115,11 @@ export default function CadastroScreen({ initialProfile, onRegister, onBack }) {
             A senha não é armazenada e ainda não existe autenticação por servidor.
           </Text>
         </View>
+        <Pressable style={styles.linkLogin} onPress={onBack}>
+          <Text style={styles.textoLinkLogin}>
+            Já tem conta? <Text style={styles.textoLinkLoginDestaque}>Entrar</Text>
+          </Text>
+        </Pressable>
     </View>
   );
 }
@@ -187,4 +192,7 @@ const styles = StyleSheet.create({
   },
   submitText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   footnote: { color: COLORS.muted, fontSize: 9, lineHeight: 14, textAlign: 'center', marginTop: 12 },
+  linkLogin: { alignItems: 'center', paddingVertical: 12 },
+textoLinkLogin: { color: COLORS.muted, fontSize: 12 },
+textoLinkLoginDestaque: { color: COLORS.red, fontWeight: '900' },
 });

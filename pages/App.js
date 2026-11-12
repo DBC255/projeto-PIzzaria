@@ -5,6 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CadastroScreen from './CadastroScreen';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
+import Login from './login';
+
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
         shouldPlaySound: true,
@@ -111,7 +113,7 @@ async function notifyStatus(status, orderNumber) {
     }
 }
 function PizzariaApp() {
-    const [screen, setScreen] = useState('home');
+    const [screen, setScreen] = useState('login');
     const [cart, setCart] = useState([]);
     const [orders, setOrders] = useState([]);
     const [profile, setProfile] = useState(DEFAULT_ADDRESS);
@@ -310,7 +312,7 @@ function PizzariaApp() {
     const pageTitle = screen === 'cart' ? 'Seu carrinho' : screen === 'checkout' ? 'Finalizar pedido' : null;
     return (React.createElement(SafeAreaView, { style: styles.safeArea, edges: ['top', 'left', 'right'] },
         React.createElement(StatusBar, { barStyle: "dark-content", backgroundColor: COLORS.cream }),
-        React.createElement(View, { style: styles.header },
+        screen !== 'login' && (React.createElement(View, { style: styles.header }),
             React.createElement(Pressable, { onPress: () => setScreen('home'), style: styles.brandBlock, accessibilityRole: "button", accessibilityLabel: "Ir para o in\u00EDcio" },
                 React.createElement(View, { style: styles.logoMark },
                     React.createElement(Text, { style: styles.logoPi }, "\u03C0"),
@@ -393,12 +395,14 @@ function PizzariaApp() {
                             React.createElement(Text, { style: styles.ingredientSelected },
                                 (builderSelections[group.id] ?? []).length,
                                 " selecionado(s)")),
-                        React.createElement(View, { style: styles.optionsWrap }, group.options.map((option) => { const selected = (builderSelections[group.id] ?? []).includes(option.label); return React.createElement(Pressable, { key: option.label, onPress: () => toggleIngredient(group, option.label), style: [styles.ingredientChip, selected && styles.ingredientChipActive] },
-                            React.createElement(Text, { style: [styles.ingredientCheck, selected && styles.ingredientCheckActive] }, selected ? '✓' : '+'),
-                            React.createElement(Text, { style: [styles.ingredientLabel, selected && styles.ingredientLabelActive] }, option.label),
-                            option.price > 0 && React.createElement(Text, { style: [styles.ingredientPrice, selected && styles.ingredientLabelActive] },
-                                "+",
-                                money(option.price))); })))),
+                        React.createElement(View, { style: styles.optionsWrap }, group.options.map((option) => {
+                            const selected = (builderSelections[group.id] ?? []).includes(option.label); return React.createElement(Pressable, { key: option.label, onPress: () => toggleIngredient(group, option.label), style: [styles.ingredientChip, selected && styles.ingredientChipActive] },
+                                React.createElement(Text, { style: [styles.ingredientCheck, selected && styles.ingredientCheckActive] }, selected ? '✓' : '+'),
+                                React.createElement(Text, { style: [styles.ingredientLabel, selected && styles.ingredientLabelActive] }, option.label),
+                                option.price > 0 && React.createElement(Text, { style: [styles.ingredientPrice, selected && styles.ingredientLabelActive] },
+                                    "+",
+                                    money(option.price)));
+                        })))),
                     React.createElement(View, { style: styles.priceSummary },
                         React.createElement(View, null,
                             React.createElement(Text, { style: styles.priceSummaryLabel }, "Sua cria\u00E7\u00E3o"),
@@ -528,10 +532,21 @@ function PizzariaApp() {
                                 React.createElement(Text, { style: styles.demoAdvanceText }, "Simular próxima etapa da pizzaria (demonstração) →"))),
                             order.status === 'delivered' && React.createElement(View, { style: styles.ratingBox },
                                 React.createElement(Text, { style: styles.profileSectionTitle }, 'Como foi sua experiência?'),
-                                React.createElement(View, { style: styles.ratingRow }, [1,2,3,4,5].map((score) => React.createElement(Pressable, { key: score, onPress: () => saveRating(order.id, score) }, React.createElement(Text, { style: styles.ratingStar }, score <= (ratings[order.id] || 0) ? '★' : '☆')))),
+                                React.createElement(View, { style: styles.ratingRow }, [1, 2, 3, 4, 5].map((score) => React.createElement(Pressable, { key: score, onPress: () => saveRating(order.id, score) }, React.createElement(Text, { style: styles.ratingStar }, score <= (ratings[order.id] || 0) ? '★' : '☆')))),
                                 React.createElement(Text, { style: styles.profileSectionText }, ratings[order.id] ? `Você avaliou com ${ratings[order.id]} estrela(s).` : 'Avalie seu pedido de 1 a 5 estrelas.')),
                             null));
                     })))),
+                screen === 'login' && (
+                    <Login
+                        onLoginSuccess={(account) => {
+                        if (account?.email) {
+                            setProfile((current) => ({ ...current, email: account.email }));
+                        }
+                        setScreen('home');
+                        }}
+                        onGoToRegister={() => setScreen('register')}
+                    />
+                    ),
                 screen === 'register' && React.createElement(CadastroScreen, {
                     initialProfile: profile,
                     onBack: () => setScreen('profile'),
@@ -565,7 +580,7 @@ function PizzariaApp() {
                     React.createElement(View, { style: styles.demoInfo },
                         React.createElement(Text, { style: styles.demoInfoTitle }, '📱  Funcionamento local'),
                         React.createElement(Text, { style: styles.demoInfoText }, 'Cardápio, carrinho, endereço, favoritos, avaliações e pedidos ficam salvos neste aparelho. Este modo demonstração não envia pedidos à unidade nem processa pagamentos; a confirmação e as etapas são simuladas.')))))),
-        !pageTitle && screen !== 'register' && React.createElement(View, { style: styles.bottomNav }, ([
+        screen !== 'login' && !pageTitle && screen !== 'register' && React.createElement(View, { style: styles.bottomNav }, ([
             { id: 'home', icon: '⌂', label: 'Início' },
             { id: 'builder', icon: '✳', label: 'Monte' },
             { id: 'orders', icon: '◷', label: 'Pedidos' },
@@ -578,6 +593,7 @@ function PizzariaApp() {
             React.createElement(Text, { style: styles.toastText },
                 "\u2713  ",
                 toast)) : null));
+
 }
 function MenuCard({ pizza, onAdd, favorite, onFavorite }) {
     return React.createElement(View, { style: styles.menuCard },
@@ -838,34 +854,34 @@ const styles = StyleSheet.create({
 // Exibe um diagnóstico no lugar de uma tela totalmente branca caso ocorra
 // um erro durante a renderização das telas do aplicativo.
 class AppErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { error };
-  }
-
-  componentDidCatch(error, info) {
-    console.error('Erro de renderização na πzzaria:', error, info && info.componentStack);
-  }
-
-  render() {
-    if (this.state.error) {
-      const message = this.state.error && this.state.error.message
-        ? this.state.error.message
-        : String(this.state.error);
-      return React.createElement(
-        SafeAreaView,
-        { style: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#FFF9F1' } },
-        React.createElement(Text, { style: { fontSize: 22, fontWeight: '900', color: '#C83B2B', marginBottom: 12 } }, 'Ops! A πzzaria encontrou um erro.'),
-        React.createElement(Text, { style: { fontSize: 14, color: '#2A211C', marginBottom: 12, lineHeight: 21 } }, 'Reinicie o aplicativo. Se continuar, veja a mensagem abaixo e o terminal do Expo.'),
-        React.createElement(Text, { selectable: true, style: { fontSize: 12, color: '#85766C', lineHeight: 18 } }, message)
-      );
+    constructor(props) {
+        super(props);
+        this.state = { error: null };
     }
-    return React.createElement(PizzariaApp, this.props);
-  }
+
+    static getDerivedStateFromError(error) {
+        return { error };
+    }
+
+    componentDidCatch(error, info) {
+        console.error('Erro de renderização na πzzaria:', error, info && info.componentStack);
+    }
+
+    render() {
+        if (this.state.error) {
+            const message = this.state.error && this.state.error.message
+                ? this.state.error.message
+                : String(this.state.error);
+            return React.createElement(
+                SafeAreaView,
+                { style: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#FFF9F1' } },
+                React.createElement(Text, { style: { fontSize: 22, fontWeight: '900', color: '#C83B2B', marginBottom: 12 } }, 'Ops! A πzzaria encontrou um erro.'),
+                React.createElement(Text, { style: { fontSize: 14, color: '#2A211C', marginBottom: 12, lineHeight: 21 } }, 'Reinicie o aplicativo. Se continuar, veja a mensagem abaixo e o terminal do Expo.'),
+                React.createElement(Text, { selectable: true, style: { fontSize: 12, color: '#85766C', lineHeight: 18 } }, message)
+            );
+        }
+        return React.createElement(PizzariaApp, this.props);
+    }
 }
 
 // SafeAreaProvider precisa envolver toda a aplicação, inclusive a tela de erro.
